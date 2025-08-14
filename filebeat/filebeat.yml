@@ -1,0 +1,54 @@
+filebeat.inputs:
+  - type: filestream
+    id: suricata-eve
+    paths: ["/var/log/suricata/eve.json"]
+    parsers:
+      - ndjson:
+          overwrite_keys: true
+
+  - type: filestream
+    id: zeek-conn
+    paths: ["/opt/zeek/logs/current/conn.log"]
+    parsers:
+      - ndjson:
+          overwrite_keys: true
+    ignore_older: 24h
+
+  - type: filestream
+    id: zeek-http
+    paths: ["/opt/zeek/logs/current/http.log"]
+    parsers:
+      - ndjson:
+          overwrite_keys: true
+    ignore_older: 24h
+
+  - type: filestream
+    id: zeek-dns
+    paths: ["/opt/zeek/logs/current/dns.log"]
+    parsers:
+      - ndjson:
+          overwrite_keys: true
+    ignore_older: 24h
+
+  - type: filestream
+    id: zeek-ssl
+    paths: ["/opt/zeek/logs/current/ssl.log"]
+    parsers:
+      - ndjson:
+          overwrite_keys: true
+    ignore_older: 24h
+
+output.elasticsearch:
+  hosts: ["${ELASTICSEARCH_HOST}"]
+  username: "${ELASTICSEARCH_USER}"
+  password: "${ELASTICSEARCH_PASS}"
+  pipeline: "${PIPELINE_NAME}"
+
+setup.template.enabled: true
+setup.ilm.enabled: false
+processors:
+  - add_fields:
+      target: minisoc
+      fields:
+        source: "filebeat"
+        project: "MiniSOC"

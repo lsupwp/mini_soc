@@ -1,0 +1,11 @@
+{
+  "name": "minisoc-api",
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "@elastic/elasticsearch": "^8.13.1",
+    "express": "^4.19.2",
+    "geoip-lite": "^1.4.7",
+    "maxmind": "^4.3.22"
+  }
+}

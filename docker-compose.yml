@@ -1,0 +1,181 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION}
+    container_name: minisoc-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - ES_JAVA_OPTS=${ES_JAVA_OPTS}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - minisoc
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${KIBANA_VERSION}
+    container_name: minisoc-kibana
+    depends_on:
+      - elasticsearch
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
+      - SERVER_PUBLICBASEURL=http://localhost:5601
+    ports:
+      - "5601:5601"
+    networks:
+      - minisoc
+
+  setup-kibana-user:
+    image: curlimages/curl:8.7.1
+    container_name: minisoc-setup-kibana-user
+    depends_on:
+      - elasticsearch
+    entrypoint: [ "/bin/sh", "-c" ]
+    command: >
+      " until curl -s -k -u elastic:${ELASTIC_PASSWORD} http://elasticsearch:9200 >/dev/null; do echo 'waiting for ES'; sleep 3; done; echo 'Setting kibana_system password...'; curl -s -X POST -u elastic:${ELASTIC_PASSWORD} http://elasticsearch:9200/_security/user/kibana_system/_password -H 'Content-Type: application/json' -d '{"password": "${KIBANA_PASSWORD}"}'; echo 'Done'; "
+    networks:
+      - minisoc
+    restart: "no"
+
+  filebeat:
+    build: ./filebeat
+    container_name: minisoc-filebeat
+    depends_on:
+      - elasticsearch
+    user: root
+    volumes:
+      - suricata-logs:/var/log/suricata
+      - zeek-logs:/opt/zeek/logs/current
+    environment:
+      - ELASTICSEARCH_HOST=http://elasticsearch:9200
+      - ELASTICSEARCH_USER=elastic
+      - ELASTICSEARCH_PASS=${ELASTIC_PASSWORD}
+      - PIPELINE_NAME=minisoc-enrich
+    networks:
+      - minisoc
+
+  suricata-docker:
+    image: jasonish/suricata:${SURICATA_VERSION}
+    container_name: minisoc-suricata-docker
+    network_mode: host
+    privileged: true
+    environment:
+      - IFACE_DOCKER=${IFACE_DOCKER}
+    volumes:
+      - ./suricata/suricata.yaml:/etc/suricata/suricata.yaml:ro
+      - ./suricata/rules:/etc/suricata/rules:ro
+      - ./suricata/start-suricata.sh:/start-suricata.sh:ro
+      - suricata-logs:/var/log/suricata
+    command: ["/start-suricata.sh", "${IFACE_DOCKER}"]
+    restart: unless-stopped
+
+  # Monitor LAN traffic (incoming traffic from other devices)
+  suricata-lan:
+    image: jasonish/suricata:${SURICATA_VERSION}
+    container_name: minisoc-suricata-lan
+    network_mode: host
+    privileged: true
+    environment:
+      - IFACE_LAN=${IFACE_LAN}
+    volumes:
+      - ./suricata/suricata.yaml:/etc/suricata/suricata.yaml:ro
+      - ./suricata/rules:/etc/suricata/rules:ro
+      - ./suricata/start-suricata.sh:/start-suricata.sh:ro
+      - suricata-logs:/var/log/suricata
+    command: ["/start-suricata.sh", "${IFACE_LAN}"]
+    restart: unless-stopped
+
+  # Monitor Host traffic (local machine traffic)
+  suricata-host:
+    image: jasonish/suricata:${SURICATA_VERSION}
+    container_name: minisoc-suricata-host
+    network_mode: host
+    privileged: true
+    environment:
+      - IFACE_HOST=${IFACE_HOST}
+    volumes:
+      - ./suricata/suricata.yaml:/etc/suricata/suricata.yaml:ro
+      - ./suricata/rules:/etc/suricata/rules:ro
+      - ./suricata/start-suricata-host.sh:/start-suricata-host.sh:ro
+      - suricata-logs:/var/log/suricata
+    command: ["/start-suricata-host.sh"]
+    restart: unless-stopped
+
+  zeek:
+    image: zeek/zeek:latest
+    container_name: minisoc-zeek
+    network_mode: host
+    privileged: true
+    environment:
+      - IFACE_DOCKER=${IFACE_DOCKER}
+    command: >
+      /bin/sh -c "
+        mkdir -p /opt/zeek/logs/current;
+        zeek -i ${IFACE_DOCKER} LogAscii::use_json=T || true;
+        tail -F /opt/zeek/logs/current/*.log
+      "
+    volumes:
+      - zeek-logs:/opt/zeek/logs/current
+
+  api:
+    build: ./api
+    container_name: minisoc-api
+    depends_on:
+      - elasticsearch
+    environment:
+      - ELASTIC_URL=http://elasticsearch:9200
+      - ELASTIC_USER=elastic
+      - ELASTIC_PASS=${ELASTIC_PASSWORD}
+      - GEO_CITY_DB=/geoip/GeoLite2-City.mmdb
+      - GEO_ASN_DB=/geoip/GeoLite2-ASN.mmdb
+    volumes:
+      - ./geoip:/geoip:ro
+    ports:
+      - "8080:8080"
+    networks:
+      - minisoc
+
+  dvwa:
+    image: vulnerables/web-dvwa
+    container_name: minisoc-dvwa
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    networks:
+      - minisoc
+
+  juice-shop:
+    image: bkimminich/juice-shop
+    container_name: minisoc-juice-shop
+    restart: unless-stopped
+    ports:
+      - "8082:3000"
+    networks:
+      - minisoc
+
+  attacker-tools:
+    image: alpine:3.19
+    container_name: minisoc-attacker
+    tty: true
+    stdin_open: true
+    networks:
+      - minisoc
+    command: /bin/sh -c "apk add --no-cache nmap curl wget jq busybox-extras; sleep infinity"
+
+volumes:
+  es-data:
+  suricata-logs:
+  zeek-logs:
+
+
+networks:
+  minisoc:
+    driver: bridge

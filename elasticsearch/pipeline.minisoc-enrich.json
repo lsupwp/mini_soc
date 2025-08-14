@@ -1,0 +1,46 @@
+{
+  "description": "MiniSOC enrich: GeoIP City/ASN + normalize Zeek fields",
+  "processors": [
+    {
+      "rename": {
+        "field": "id.orig_h",
+        "target_field": "src_ip",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "id.resp_h",
+        "target_field": "dest_ip",
+        "ignore_missing": true
+      }
+    },
+    {
+      "geoip": {
+        "field": "src_ip",
+        "target_field": "geo.src",
+        "ignore_missing": true
+      }
+    },
+    {
+      "geoip": {
+        "field": "dest_ip",
+        "target_field": "geo.dest",
+        "ignore_missing": true
+      }
+    },
+    {
+      "set": {
+        "field": "severity",
+        "value": "{{alert.severity}}",
+        "ignore_empty_value": true
+      }
+    },
+    {
+      "script": {
+        "lang": "painless",
+        "source": "if (ctx?.geo?.src?.location != null) { ctx['geo.src.location'] = ctx.geo.src.location; } if (ctx?.geo?.dest?.location != null) { ctx['geo.dest.location'] = ctx.geo.dest.location; }"
+      }
+    }
+  ]
+}
